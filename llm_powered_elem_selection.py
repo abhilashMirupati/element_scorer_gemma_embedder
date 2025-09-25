@@ -154,6 +154,7 @@ _JS_EXACT = r"""
     .trim();
 
   const RAW = norm(targetText);
+  const RAWi = RAW.toLowerCase();
   if (!RAW) return [];
 
   // ---------- Phase 1: innerText scan across light + shadow DOM ----------
@@ -166,7 +167,7 @@ _JS_EXACT = r"""
       for (const el of elements) {
         if (el.shadowRoot) stack.push(el.shadowRoot);
         try {
-          if (norm(el.innerText || el.textContent || "") === RAW) {
+          if (norm(el.innerText || el.textContent || "").toLowerCase() === RAWi) {
             txtMatches.push(el);
             // If this is a <label>, also include its associated control via "for" or .control
             const tag = (el.tagName || "").toLowerCase();
@@ -227,48 +228,48 @@ _JS_EXACT = r"""
     const q = cssEscape(RAW);
     const selector = [
       // stable/common ids & names
-      `[id="${q}"]`,
-      `[name="${q}"]`,
-      `input[name="${q}"]`,
-      `textarea[name="${q}"]`,
-      `select[name="${q}"]`,
+      `[id="${q}" i]`,
+      `[name="${q}" i]`,
+      `input[name="${q}" i]`,
+      `textarea[name="${q}" i]`,
+      `select[name="${q}" i]`,
 
       // ARIA & role hooks
-      `[role="${q}"]`,
-      `[aria-label="${q}"]`,
-      `[aria-labelledby="${q}"]`,
-      `[aria-describedby="${q}"]`,
+      `[role="${q}" i]`,
+      `[aria-label="${q}" i]`,
+      `[aria-labelledby="${q}" i]`,
+      `[aria-describedby="${q}" i]`,
 
       // classic title/alt
-      `[title="${q}"]`,
-      `[alt="${q}"]`,
+      `[title="${q}" i]`,
+      `[alt="${q}" i]`,
 
       // placeholders (inputs/textareas)
-      `input[placeholder="${q}"]`,
-      `textarea[placeholder="${q}"]`,
+      `input[placeholder="${q}" i]`,
+      `textarea[placeholder="${q}" i]`,
 
       // testing-friendly stable data hooks
-      `[data-testid="${q}"]`,
-      `[data-test="${q}"]`,
-      `[data-qa="${q}"]`,
-      `[data-automation-id="${q}"]`,
-      `[data-id="${q}"]`,
-      `[data-cy="${q}"]`,
-      `[data-cypress="${q}"]`,
-      `[data-test-id="${q}"]`,
-      `[data-tid="${q}"]`,
-      `[data-e2e="${q}"]`,
-      `[data-qa-id="${q}"]`,
-      `[data-automation="${q}"]`,
+      `[data-testid="${q}" i]`,
+      `[data-test="${q}" i]`,
+      `[data-qa="${q}" i]`,
+      `[data-automation-id="${q}" i]`,
+      `[data-id="${q}" i]`,
+      `[data-cy="${q}" i]`,
+      `[data-cypress="${q}" i]`,
+      `[data-test-id="${q}" i]`,
+      `[data-tid="${q}" i]`,
+      `[data-e2e="${q}" i]`,
+      `[data-qa-id="${q}" i]`,
+      `[data-automation="${q}" i]`,
 
       // label 'for' linkage
-      `[for="${q}"]`,
-      `label[for="${q}"]`,
+      `[for="${q}" i]`,
+      `label[for="${q}" i]`,
 
       // input buttons by value (no innerText)
-      `input[type="button"][value="${q}"]`,
-      `input[type="submit"][value="${q}"]`,
-      `input[type="reset"][value="${q}"]`
+      `input[type="button"][value="${q}" i]`,
+      `input[type="submit"][value="${q}" i]`,
+      `input[type="reset"][value="${q}" i]`
     ].join(",");
 
     attrMatches = Array.from(document.querySelectorAll(selector));
@@ -296,7 +297,7 @@ _JS_EXACT = r"""
 
           // Associate form controls with matching <label> text via HTMLLabelElement.labels
           try {
-            if (!matched && el.labels && Array.from(el.labels).some(lb => norm(lb.innerText || lb.textContent || "") === RAW)) {
+            if (!matched && el.labels && Array.from(el.labels).some(lb => norm(lb.innerText || lb.textContent || "").toLowerCase() === RAWi)) {
               attrMatches.push(el); matched = true;
             }
           } catch (_) {}
@@ -306,7 +307,7 @@ _JS_EXACT = r"""
           for (const k of ATTR_KEYS) {
             if (k === "placeholder") {
               const tg = (el.tagName || "").toLowerCase();
-              if ((tg === "input" || tg === "textarea") && norm(el.getAttribute("placeholder")) === RAW) {
+              if ((tg === "input" || tg === "textarea") && norm(el.getAttribute("placeholder")).toLowerCase() === RAWi) {
                 attrMatches.push(el); matched = true; break;
               }
               continue;
@@ -315,7 +316,7 @@ _JS_EXACT = r"""
               const tg = (el.tagName || "").toLowerCase();
               if (tg === "input") {
                 const t = (el.getAttribute("type") || "").toLowerCase();
-                if ((t === "button" || t === "submit" || t === "reset") && norm(el.getAttribute("value")) === RAW) {
+                if ((t === "button" || t === "submit" || t === "reset") && norm(el.getAttribute("value")).toLowerCase() === RAWi) {
                   attrMatches.push(el); matched = true; break;
                 }
               }
@@ -330,7 +331,7 @@ _JS_EXACT = r"""
                   const lbl = document.getElementById(id);
                   if (lbl) text += " " + (lbl.innerText || lbl.textContent || "");
                 }
-                if (norm(text) === RAW) { attrMatches.push(el); matched = true; break; }
+                if (norm(text).toLowerCase() === RAWi) { attrMatches.push(el); matched = true; break; }
               }
               continue;
             }
@@ -343,12 +344,12 @@ _JS_EXACT = r"""
                   const d = document.getElementById(id);
                   if (d) text += " " + (d.innerText || d.textContent || "");
                 }
-                if (norm(text) === RAW) { attrMatches.push(el); matched = true; break; }
+                if (norm(text).toLowerCase() === RAWi) { attrMatches.push(el); matched = true; break; }
               }
               continue;
             }
             const v = el.getAttribute && el.getAttribute(k);
-            if (v != null && norm(v) === RAW) { attrMatches.push(el); matched = true; break; }
+            if (v != null && norm(v).toLowerCase() === RAWi) { attrMatches.push(el); matched = true; break; }
           }
         }
       }
