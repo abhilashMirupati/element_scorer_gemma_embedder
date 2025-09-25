@@ -271,35 +271,20 @@ _JS_EXACT = r"""
       `input[name="${q}" i]`,
       `textarea[name="${q}" i]`,
       `select[name="${q}" i]`,
-      // contains variants
-      `[id*="${q}" i]`,
-      `[name*="${q}" i]`,
-      `input[name*="${q}" i]`,
-      `textarea[name*="${q}" i]`,
-      `select[name*="${q}" i]`,
 
       // ARIA & role hooks
       `[role="${q}" i]`,
       `[aria-label="${q}" i]`,
       `[aria-labelledby="${q}" i]`,
       `[aria-describedby="${q}" i]`,
-      // contains
-      `[role*="${q}" i]`,
-      `[aria-label*="${q}" i]`,
-      `[aria-labelledby*="${q}" i]`,
-      `[aria-describedby*="${q}" i]`,
 
       // classic title/alt
       `[title="${q}" i]`,
       `[alt="${q}" i]`,
-      `[title*="${q}" i]`,
-      `[alt*="${q}" i]`,
 
       // placeholders (inputs/textareas)
       `input[placeholder="${q}" i]`,
       `textarea[placeholder="${q}" i]`,
-      `input[placeholder*="${q}" i]`,
-      `textarea[placeholder*="${q}" i]`,
 
       // testing-friendly stable data hooks
       `[data-testid="${q}" i]`,
@@ -314,33 +299,15 @@ _JS_EXACT = r"""
       `[data-e2e="${q}" i]`,
       `[data-qa-id="${q}" i]`,
       `[data-automation="${q}" i]`,
-      // contains variants for data hooks
-      `[data-testid*="${q}" i]`,
-      `[data-test*="${q}" i]`,
-      `[data-qa*="${q}" i]`,
-      `[data-automation-id*="${q}" i]`,
-      `[data-id*="${q}" i]`,
-      `[data-cy*="${q}" i]`,
-      `[data-cypress*="${q}" i]`,
-      `[data-test-id*="${q}" i]`,
-      `[data-tid*="${q}" i]`,
-      `[data-e2e*="${q}" i]`,
-      `[data-qa-id*="${q}" i]`,
-      `[data-automation*="${q}" i]`,
 
       // label 'for' linkage
       `[for="${q}" i]`,
       `label[for="${q}" i]`,
-      `[for*="${q}" i]`,
-      `label[for*="${q}" i]`,
 
       // input buttons by value (no innerText)
       `input[type="button"][value="${q}" i]`,
       `input[type="submit"][value="${q}" i]`,
-      `input[type="reset"][value="${q}" i]`,
-      `input[type="button"][value*="${q}" i]`,
-      `input[type="submit"][value*="${q}" i]`,
-      `input[type="reset"][value*="${q}" i]`
+      `input[type="reset"][value="${q}" i]`
     ].join(",");
 
     attrMatches = Array.from(document.querySelectorAll(selector));
@@ -370,7 +337,7 @@ _JS_EXACT = r"""
           try {
             if (!matched && el.labels && Array.from(el.labels).some(lb => {
               const t = norm(lb.innerText || lb.textContent || "").toLowerCase();
-              return t === RAWi || t.includes(RAWi);
+              return t === RAWi;
             })) {
               attrMatches.push(el); matched = true;
             }
@@ -383,9 +350,8 @@ _JS_EXACT = r"""
               const tg = (el.tagName || "").toLowerCase();
               if ((tg === "input" || tg === "textarea")) {
                 const pv = norm(el.getAttribute("placeholder")).toLowerCase();
-                if (pv === RAWi || pv.includes(RAWi)) { attrMatches.push(el); matched = true; break; }
+                if (pv === RAWi) { attrMatches.push(el); matched = true; break; }
               }
-                attrMatches.push(el); matched = true; break;
               continue;
             }
             if (k === "value") {
@@ -394,7 +360,7 @@ _JS_EXACT = r"""
                 const t = (el.getAttribute("type") || "").toLowerCase();
                 if ((t === "button" || t === "submit" || t === "reset")) {
                   const vv = norm(el.getAttribute("value")).toLowerCase();
-                  if (vv === RAWi || vv.includes(RAWi)) { attrMatches.push(el); matched = true; break; }
+                  if (vv === RAWi) { attrMatches.push(el); matched = true; break; }
                 }
               }
               continue;
@@ -409,7 +375,7 @@ _JS_EXACT = r"""
                   if (lbl) text += " " + (lbl.innerText || lbl.textContent || "");
                 }
                 const lt = norm(text).toLowerCase();
-                if (lt === RAWi || lt.includes(RAWi)) { attrMatches.push(el); matched = true; break; }
+                if (lt === RAWi) { attrMatches.push(el); matched = true; break; }
               }
               continue;
             }
@@ -423,14 +389,14 @@ _JS_EXACT = r"""
                   if (d) text += " " + (d.innerText || d.textContent || "");
                 }
                 const dt = norm(text).toLowerCase();
-                if (dt === RAWi || dt.includes(RAWi)) { attrMatches.push(el); matched = true; break; }
+                if (dt === RAWi) { attrMatches.push(el); matched = true; break; }
               }
               continue;
             }
             const v = el.getAttribute && el.getAttribute(k);
             if (v != null) {
               const nv = norm(v).toLowerCase();
-              if (nv === RAWi || nv.includes(RAWi)) { attrMatches.push(el); matched = true; break; }
+              if (nv === RAWi) { attrMatches.push(el); matched = true; break; }
             }
           }
         }
