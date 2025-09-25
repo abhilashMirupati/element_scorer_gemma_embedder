@@ -137,7 +137,7 @@ for i,s in enumerate(snippets, start=1):
 # 🕷️ JavaScript: innerText first → CSS attribute fallback (with name fast-path)
 # ============================
 _JS_EXACT = r"""
-(targetText) => {
+(targetTextOrParams, maybeOpts) => {
   const out  = n => n ? n.outerHTML : "";
   const vis  = el => !!(el && el.offsetParent !== null);
   const uniq = nodes => {
@@ -147,6 +147,18 @@ _JS_EXACT = r"""
     return a.filter(el => !a.some(other => other !== el && other.contains(el)));
   };
 
+  // Support both legacy (string arg) and new ({ target, opts }) shape
+  let targetText = targetTextOrParams;
+  let opts = maybeOpts;
+  if (typeof targetTextOrParams === 'object' && targetTextOrParams !== null) {
+    const p = targetTextOrParams;
+    targetText = p.target ?? p.text ?? p.value ?? p.t ?? "";
+    opts = p.opts ?? p;
+  }
+
+  // Global toggle: exact-only matching (normalized, case-insensitive)
+  const EXACT = !!(opts && (opts.exact || opts.strict || opts.exactOnly));
+
   // normalize: trim, collapse spaces, map NBSP/ZW spaces to ' '
   const norm = s => String(s ?? "")
     .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, " ")
@@ -154,17 +166,37 @@ _JS_EXACT = r"""
     .trim();
 
   const RAW = norm(targetText);
+  const RAWi = RAW.toLowerCase();
   if (!RAW) return [];
 
-  // ---------- Phase 1: original innerText scan (fast path) ----------
+  // ---------- Phase 1: innerText scan across light + shadow DOM ----------
   const txtMatches = [];
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null, false);
-  let node;
-  while ((node = walker.nextNode())) {
-    try {
-      if (norm(node.innerText || "") === RAW) txtMatches.push(node);
-    } catch (_) {}
-  }
+  try {
+    const stack = [document];
+    while (stack.length) {
+      const root = stack.pop();
+      const elements = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      for (const el of elements) {
+        if (el.shadowRoot) stack.push(el.shadowRoot);
+        try {
+          if (norm(el.innerText || el.textContent || "").toLowerCase() === RAWi) {
+            txtMatches.push(el);
+            // If this is a <label>, also include its associated control via "for" or .control
+            const tag = (el.tagName || "").toLowerCase();
+            if (tag === "label") {
+              const fid = el.getAttribute("for");
+              if (fid) {
+                const ctrl = document.getElementById(fid);
+                if (ctrl) txtMatches.push(ctrl);
+              } else if (el.control) {
+                txtMatches.push(el.control);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
   if (txtMatches.length > 0) {
     const finals = uniq(txtMatches);
     return finals.map(el => ({
@@ -173,6 +205,46 @@ _JS_EXACT = r"""
       grandHTML: out(el.parentElement ? el.parentElement.parentElement : null),
       visible: vis(el)
     }));
+  }
+
+  // ---------- Phase 1b: innerText contains fallback (case-insensitive, only if not EXACT) ----------
+  if (!EXACT) {
+    const containsMatches = [];
+    try {
+      const stack2 = [document];
+      while (stack2.length) {
+        const root2 = stack2.pop();
+        const elements2 = root2.querySelectorAll ? root2.querySelectorAll("*") : [];
+        for (const el of elements2) {
+          if (el.shadowRoot) stack2.push(el.shadowRoot);
+          try {
+            const txt = norm(el.innerText || el.textContent || "").toLowerCase();
+            if (txt && txt.includes(RAWi)) {
+              containsMatches.push(el);
+              const tag = (el.tagName || "").toLowerCase();
+              if (tag === "label") {
+                const fid = el.getAttribute("for");
+                if (fid) {
+                  const ctrl = document.getElementById(fid);
+                  if (ctrl) containsMatches.push(ctrl);
+                } else if (el.control) {
+                  containsMatches.push(el.control);
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    if (containsMatches.length > 0) {
+      const finals = uniq(containsMatches);
+      return finals.map(el => ({
+        nodeHTML: out(el),
+        parentHTML: out(el.parentElement),
+        grandHTML: out(el.parentElement ? el.parentElement.parentElement : null),
+        visible: vis(el)
+      }));
+    }
   }
 
   // ---------- Phase 2: attribute fallback via CSS selectors ----------
@@ -193,63 +265,108 @@ _JS_EXACT = r"""
     const byName = document.getElementsByName ? document.getElementsByName(RAW) : [];
     if (byName && byName.length) attrMatches.push(...byName);
 
-    // If fast paths already found something, we can format & return
-    if (attrMatches.length > 0) {
-      const finals = uniq(attrMatches);
-      return finals.map(el => ({
-        nodeHTML: out(el),
-        parentHTML: out(el.parentElement),
-        grandHTML: out(el.parentElement ? el.parentElement.parentElement : null),
-        visible: vis(el)
-      }));
-    }
+    // Do not return early; aggregate with CSS and deep scan to avoid missing matches in other attributes/roots
 
     // Curated CSS selector pass (light DOM)
     const q = cssEscape(RAW);
-    const selector = [
+    const selectorExact = [
       // stable/common ids & names
-      `[id="${q}"]`,
-      `[name="${q}"]`,
-      `input[name="${q}"]`,
-      `textarea[name="${q}"]`,
-      `select[name="${q}"]`,
+      `[id="${q}" i]`,
+      `[name="${q}" i]`,
+      `input[name="${q}" i]`,
+      `textarea[name="${q}" i]`,
+      `select[name="${q}" i]`,
 
       // ARIA & role hooks
-      `[role="${q}"]`,
-      `[aria-label="${q}"]`,
-      `[aria-labelledby="${q}"]`,
-      `[aria-describedby="${q}"]`,
+      `[role="${q}" i]`,
+      `[aria-label="${q}" i]`,
+      `[aria-labelledby="${q}" i]`,
+      `[aria-describedby="${q}" i]`,
 
       // classic title/alt
-      `[title="${q}"]`,
-      `[alt="${q}"]`,
+      `[title="${q}" i]`,
+      `[alt="${q}" i]`,
 
       // placeholders (inputs/textareas)
-      `input[placeholder="${q}"]`,
-      `textarea[placeholder="${q}"]`,
+      `input[placeholder="${q}" i]`,
+      `textarea[placeholder="${q}" i]`,
 
       // testing-friendly stable data hooks
-      `[data-testid="${q}"]`,
-      `[data-test="${q}"]`,
-      `[data-qa="${q}"]`,
-      `[data-automation-id="${q}"]`,
-      `[data-id="${q}"]`,
+      `[data-testid="${q}" i]`,
+      `[data-test="${q}" i]`,
+      `[data-qa="${q}" i]`,
+      `[data-automation-id="${q}" i]`,
+      `[data-id="${q}" i]`,
+      `[data-cy="${q}" i]`,
+      `[data-cypress="${q}" i]`,
+      `[data-test-id="${q}" i]`,
+      `[data-tid="${q}" i]`,
+      `[data-e2e="${q}" i]`,
+      `[data-qa-id="${q}" i]`,
+      `[data-automation="${q}" i]`,
 
       // label 'for' linkage
-      `[for="${q}"]`,
-      `label[for="${q}"]`,
+      `[for="${q}" i]`,
+      `label[for="${q}" i]`,
 
       // input buttons by value (no innerText)
-      `input[type="button"][value="${q}"]`,
-      `input[type="submit"][value="${q}"]`,
-      `input[type="reset"][value="${q}"]`
+      `input[type="button"][value="${q}" i]`,
+      `input[type="submit"][value="${q}" i]`,
+      `input[type="reset"][value="${q}" i]`
     ].join(",");
+
+    const selectorContains = [
+      // stable/common ids & names
+      `[id*="${q}" i]`,
+      `[name*="${q}" i]`,
+      `input[name*="${q}" i]`,
+      `textarea[name*="${q}" i]`,
+      `select[name*="${q}" i]`,
+
+      // ARIA & role hooks
+      `[role*="${q}" i]`,
+      `[aria-label*="${q}" i]`,
+      `[aria-labelledby*="${q}" i]`,
+      `[aria-describedby*="${q}" i]`,
+
+      // classic title/alt
+      `[title*="${q}" i]`,
+      `[alt*="${q}" i]`,
+
+      // placeholders (inputs/textareas)
+      `input[placeholder*="${q}" i]`,
+      `textarea[placeholder*="${q}" i]`,
+
+      // testing-friendly stable data hooks
+      `[data-testid*="${q}" i]`,
+      `[data-test*="${q}" i]`,
+      `[data-qa*="${q}" i]`,
+      `[data-automation-id*="${q}" i]`,
+      `[data-id*="${q}" i]`,
+      `[data-cy*="${q}" i]`,
+      `[data-cypress*="${q}" i]`,
+      `[data-test-id*="${q}" i]`,
+      `[data-tid*="${q}" i]`,
+      `[data-e2e*="${q}" i]`,
+      `[data-qa-id*="${q}" i]`,
+      `[data-automation*="${q}" i]`,
+
+      // label 'for' linkage
+      `[for*="${q}" i]`,
+      `label[for*="${q}" i]`,
+
+      // input buttons by value (no innerText)
+      `input[type="button"][value*="${q}" i]`,
+      `input[type="submit"][value*="${q}" i]`,
+      `input[type="reset"][value*="${q}" i]`
+    ].join(",");
+
+    const selector = EXACT ? selectorExact : [selectorExact, selectorContains].join(",");
 
     attrMatches = Array.from(document.querySelectorAll(selector));
   } catch (_) { attrMatches = []; }
 
-  // ---------- Phase 2b: Shadow/whitespace-safe fallback (only if CSS found nothing) ----------
-  if (attrMatches.length === 0) {
+  // ---------- Phase 2b: Shadow/whitespace-safe fallback (aggregate always) ----------
     try {
       const ATTR_KEYS = [
         "id","name","role",
@@ -266,11 +383,26 @@ _JS_EXACT = r"""
         for (const el of all) {
           if (el.shadowRoot) stack.push(el.shadowRoot);
 
+          let matched = false;
+
+          // Associate form controls with matching <label> text via HTMLLabelElement.labels
+          try {
+            if (!matched && el.labels && Array.from(el.labels).some(lb => {
+              const t = norm(lb.innerText || lb.textContent || "").toLowerCase();
+              return EXACT ? (t === RAWi) : (t === RAWi || t.includes(RAWi));
+            })) {
+              attrMatches.push(el); matched = true;
+            }
+          } catch (_) {}
+
+          if (matched) continue;
+
           for (const k of ATTR_KEYS) {
             if (k === "placeholder") {
               const tg = (el.tagName || "").toLowerCase();
-              if ((tg === "input" || tg === "textarea") && norm(el.getAttribute("placeholder")) === RAW) {
-                attrMatches.push(el); break;
+              if ((tg === "input" || tg === "textarea")) {
+                const pv = norm(el.getAttribute("placeholder")).toLowerCase();
+                if (EXACT ? (pv === RAWi) : (pv === RAWi || pv.includes(RAWi))) { attrMatches.push(el); matched = true; break; }
               }
               continue;
             }
@@ -278,19 +410,50 @@ _JS_EXACT = r"""
               const tg = (el.tagName || "").toLowerCase();
               if (tg === "input") {
                 const t = (el.getAttribute("type") || "").toLowerCase();
-                if ((t === "button" || t === "submit" || t === "reset") && norm(el.getAttribute("value")) === RAW) {
-                  attrMatches.push(el); break;
+                if ((t === "button" || t === "submit" || t === "reset")) {
+                  const vv = norm(el.getAttribute("value")).toLowerCase();
+                  if (EXACT ? (vv === RAWi) : (vv === RAWi || vv.includes(RAWi))) { attrMatches.push(el); matched = true; break; }
                 }
               }
               continue;
             }
+            if (k === "aria-labelledby") {
+              const ref = el.getAttribute("aria-labelledby");
+              if (ref) {
+                const ids = ref.trim().split(/\s+/);
+                let text = "";
+                for (const id of ids) {
+                  const lbl = document.getElementById(id);
+                  if (lbl) text += " " + (lbl.innerText || lbl.textContent || "");
+                }
+                const lt = norm(text).toLowerCase();
+                if (EXACT ? (lt === RAWi) : (lt === RAWi || lt.includes(RAWi))) { attrMatches.push(el); matched = true; break; }
+              }
+              continue;
+            }
+            if (k === "aria-describedby") {
+              const ref = el.getAttribute("aria-describedby");
+              if (ref) {
+                const ids = ref.trim().split(/\s+/);
+                let text = "";
+                for (const id of ids) {
+                  const d = document.getElementById(id);
+                  if (d) text += " " + (d.innerText || d.textContent || "");
+                }
+                const dt = norm(text).toLowerCase();
+                if (EXACT ? (dt === RAWi) : (dt === RAWi || dt.includes(RAWi))) { attrMatches.push(el); matched = true; break; }
+              }
+              continue;
+            }
             const v = el.getAttribute && el.getAttribute(k);
-            if (v != null && norm(v) === RAW) { attrMatches.push(el); break; }
+            if (v != null) {
+              const nv = norm(v).toLowerCase();
+              if (EXACT ? (nv === RAWi) : (nv === RAWi || nv.includes(RAWi))) { attrMatches.push(el); matched = true; break; }
+            }
           }
         }
       }
     } catch (_) {}
-  }
 
   const finals = uniq(attrMatches);
   return finals.map(el => ({
