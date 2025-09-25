@@ -156,15 +156,34 @@ _JS_EXACT = r"""
   const RAW = norm(targetText);
   if (!RAW) return [];
 
-  // ---------- Phase 1: original innerText scan (fast path) ----------
+  // ---------- Phase 1: innerText scan across light + shadow DOM ----------
   const txtMatches = [];
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null, false);
-  let node;
-  while ((node = walker.nextNode())) {
-    try {
-      if (norm(node.innerText || "") === RAW) txtMatches.push(node);
-    } catch (_) {}
-  }
+  try {
+    const stack = [document];
+    while (stack.length) {
+      const root = stack.pop();
+      const elements = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      for (const el of elements) {
+        if (el.shadowRoot) stack.push(el.shadowRoot);
+        try {
+          if (norm(el.innerText || el.textContent || "") === RAW) {
+            txtMatches.push(el);
+            // If this is a <label>, also include its associated control via "for" or .control
+            const tag = (el.tagName || "").toLowerCase();
+            if (tag === "label") {
+              const fid = el.getAttribute("for");
+              if (fid) {
+                const ctrl = document.getElementById(fid);
+                if (ctrl) txtMatches.push(ctrl);
+              } else if (el.control) {
+                txtMatches.push(el.control);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
   if (txtMatches.length > 0) {
     const finals = uniq(txtMatches);
     return finals.map(el => ({
@@ -234,6 +253,13 @@ _JS_EXACT = r"""
       `[data-qa="${q}"]`,
       `[data-automation-id="${q}"]`,
       `[data-id="${q}"]`,
+      `[data-cy="${q}"]`,
+      `[data-cypress="${q}"]`,
+      `[data-test-id="${q}"]`,
+      `[data-tid="${q}"]`,
+      `[data-e2e="${q}"]`,
+      `[data-qa-id="${q}"]`,
+      `[data-automation="${q}"]`,
 
       // label 'for' linkage
       `[for="${q}"]`,
@@ -266,11 +292,22 @@ _JS_EXACT = r"""
         for (const el of all) {
           if (el.shadowRoot) stack.push(el.shadowRoot);
 
+          let matched = false;
+
+          // Associate form controls with matching <label> text via HTMLLabelElement.labels
+          try {
+            if (!matched && el.labels && Array.from(el.labels).some(lb => norm(lb.innerText || lb.textContent || "") === RAW)) {
+              attrMatches.push(el); matched = true;
+            }
+          } catch (_) {}
+
+          if (matched) continue;
+
           for (const k of ATTR_KEYS) {
             if (k === "placeholder") {
               const tg = (el.tagName || "").toLowerCase();
               if ((tg === "input" || tg === "textarea") && norm(el.getAttribute("placeholder")) === RAW) {
-                attrMatches.push(el); break;
+                attrMatches.push(el); matched = true; break;
               }
               continue;
             }
@@ -279,13 +316,39 @@ _JS_EXACT = r"""
               if (tg === "input") {
                 const t = (el.getAttribute("type") || "").toLowerCase();
                 if ((t === "button" || t === "submit" || t === "reset") && norm(el.getAttribute("value")) === RAW) {
-                  attrMatches.push(el); break;
+                  attrMatches.push(el); matched = true; break;
                 }
               }
               continue;
             }
+            if (k === "aria-labelledby") {
+              const ref = el.getAttribute("aria-labelledby");
+              if (ref) {
+                const ids = ref.trim().split(/\s+/);
+                let text = "";
+                for (const id of ids) {
+                  const lbl = document.getElementById(id);
+                  if (lbl) text += " " + (lbl.innerText || lbl.textContent || "");
+                }
+                if (norm(text) === RAW) { attrMatches.push(el); matched = true; break; }
+              }
+              continue;
+            }
+            if (k === "aria-describedby") {
+              const ref = el.getAttribute("aria-describedby");
+              if (ref) {
+                const ids = ref.trim().split(/\s+/);
+                let text = "";
+                for (const id of ids) {
+                  const d = document.getElementById(id);
+                  if (d) text += " " + (d.innerText || d.textContent || "");
+                }
+                if (norm(text) === RAW) { attrMatches.push(el); matched = true; break; }
+              }
+              continue;
+            }
             const v = el.getAttribute && el.getAttribute(k);
-            if (v != null && norm(v) === RAW) { attrMatches.push(el); break; }
+            if (v != null && norm(v) === RAW) { attrMatches.push(el); matched = true; break; }
           }
         }
       }
