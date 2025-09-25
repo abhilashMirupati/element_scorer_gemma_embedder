@@ -1,3 +1,4 @@
+import json
 import re
 import time
 import argparse
@@ -24,16 +25,18 @@ def run_once(url: str, target_text: str, js_exact: str, exact: bool, timeout_ms:
         page = browser.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
 
-        # Alignment with original pipeline: optionally wait for the target text; ignore timeout
         try:
             page.wait_for_selector(f'text="{target_text}"', timeout=timeout_ms)
         except Exception:
             pass
 
         total: List[Dict[str, Any]] = []
+        # Build a wrapper that constructs the function from source and invokes with (targetText, opts)
+        wrapper = f"(payload) => ( {js_exact} )(payload.targetText, payload.opts)"
+        payload = {"targetText": target_text, "opts": {"exact": bool(exact)}}
         for fr in page.frames:
             try:
-                res = fr.evaluate(js_exact, target_text, {"exact": exact})
+                res = fr.evaluate(wrapper, payload)
                 if res:
                     total.extend(res)
             except Exception:
@@ -43,26 +46,32 @@ def run_once(url: str, target_text: str, js_exact: str, exact: bool, timeout_ms:
         return len(total)
 
 
+def run_mode(url: str, target_text: str, js_exact: str, mode: str) -> Dict[str, int]:
+    if mode == "exact":
+        return {"exact": run_once(url, target_text, js_exact, True)}
+    if mode == "fuzzy":
+        return {"fuzzy": run_once(url, target_text, js_exact, False)}
+    if mode == "both":
+        return {
+            "exact": run_once(url, target_text, js_exact, True),
+            "fuzzy": run_once(url, target_text, js_exact, False),
+        }
+    raise ValueError("mode must be one of: exact, fuzzy, both")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="https://www.verizon.com/smartphones/")
     parser.add_argument("--target", required=True)
-    parser.add_argument("--runs", type=int, default=2)
-    parser.add_argument("--exact", action="store_true")
+    parser.add_argument("--mode", choices=["exact", "fuzzy", "both"], default="both")
     args = parser.parse_args()
 
     js_exact = extract_js_exact_from_source()
 
-    counts = []
     t0 = time.time()
-    for i in range(args.runs):
-        start = time.time()
-        c = run_once(args.url, args.target, js_exact, args.exact)
-        end = time.time()
-        print(f"Extracted {c} candidates in {end - start:.2f} seconds (Run {i+1}) | exact={args.exact}")
-        counts.append(c)
+    results = run_mode(args.url, args.target, js_exact, args.mode)
     t1 = time.time()
-    print(f"Total runtime: {t1 - t0:.2f}s; Counts: {counts} | exact={args.exact}")
+    print(json.dumps({"counts": results, "elapsed_s": round(t1 - t0, 2)}, indent=2))
 
 
 if __name__ == "__main__":

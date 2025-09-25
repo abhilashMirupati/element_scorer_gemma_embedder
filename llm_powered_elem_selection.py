@@ -137,7 +137,7 @@ for i,s in enumerate(snippets, start=1):
 # 🕷️ JavaScript: innerText first → CSS attribute fallback (with name fast-path)
 # ============================
 _JS_EXACT = r"""
-(targetText, opts) => {
+(targetTextOrParams, maybeOpts) => {
   const out  = n => n ? n.outerHTML : "";
   const vis  = el => !!(el && el.offsetParent !== null);
   const uniq = nodes => {
@@ -146,6 +146,15 @@ _JS_EXACT = r"""
     // remove parent if a child is already included
     return a.filter(el => !a.some(other => other !== el && other.contains(el)));
   };
+
+  // Support both legacy (string arg) and new ({ target, opts }) shape
+  let targetText = targetTextOrParams;
+  let opts = maybeOpts;
+  if (typeof targetTextOrParams === 'object' && targetTextOrParams !== null) {
+    const p = targetTextOrParams;
+    targetText = p.target ?? p.text ?? p.value ?? p.t ?? "";
+    opts = p.opts ?? p;
+  }
 
   // Global toggle: exact-only matching (normalized, case-insensitive)
   const EXACT = !!(opts && (opts.exact || opts.strict || opts.exactOnly));
@@ -256,16 +265,7 @@ _JS_EXACT = r"""
     const byName = document.getElementsByName ? document.getElementsByName(RAW) : [];
     if (byName && byName.length) attrMatches.push(...byName);
 
-    // If fast paths already found something, we can format & return
-    if (attrMatches.length > 0) {
-      const finals = uniq(attrMatches);
-      return finals.map(el => ({
-        nodeHTML: out(el),
-        parentHTML: out(el.parentElement),
-        grandHTML: out(el.parentElement ? el.parentElement.parentElement : null),
-        visible: vis(el)
-      }));
-    }
+    // Do not return early; aggregate with CSS and deep scan to avoid missing matches in other attributes/roots
 
     // Curated CSS selector pass (light DOM)
     const q = cssEscape(RAW);
@@ -366,8 +366,7 @@ _JS_EXACT = r"""
     attrMatches = Array.from(document.querySelectorAll(selector));
   } catch (_) { attrMatches = []; }
 
-  // ---------- Phase 2b: Shadow/whitespace-safe fallback (only if CSS found nothing) ----------
-  if (attrMatches.length === 0) {
+  // ---------- Phase 2b: Shadow/whitespace-safe fallback (aggregate always) ----------
     try {
       const ATTR_KEYS = [
         "id","name","role",
@@ -455,7 +454,6 @@ _JS_EXACT = r"""
         }
       }
     } catch (_) {}
-  }
 
   const finals = uniq(attrMatches);
   return finals.map(el => ({
