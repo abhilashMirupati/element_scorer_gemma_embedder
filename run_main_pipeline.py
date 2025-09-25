@@ -18,13 +18,13 @@ def extract_js_exact_from_source() -> str:
     return m.group(1)
 
 
-def run_once(url: str, target_text: str, js_exact: str, timeout_ms: int = 15000) -> int:
+def run_once(url: str, target_text: str, js_exact: str, exact: bool, timeout_ms: int = 15000) -> int:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
 
-        # Attempt a short wait for exact text for parity with main pipeline
+        # Alignment with original pipeline: optionally wait for the target text; ignore timeout
         try:
             page.wait_for_selector(f'text="{target_text}"', timeout=timeout_ms)
         except Exception:
@@ -33,7 +33,7 @@ def run_once(url: str, target_text: str, js_exact: str, timeout_ms: int = 15000)
         total: List[Dict[str, Any]] = []
         for fr in page.frames:
             try:
-                res = fr.evaluate(js_exact, target_text)
+                res = fr.evaluate(js_exact, target_text, {"exact": exact})
                 if res:
                     total.extend(res)
             except Exception:
@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--url", default="https://www.verizon.com/smartphones/")
     parser.add_argument("--target", required=True)
     parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--exact", action="store_true")
     args = parser.parse_args()
 
     js_exact = extract_js_exact_from_source()
@@ -56,12 +57,12 @@ def main():
     t0 = time.time()
     for i in range(args.runs):
         start = time.time()
-        c = run_once(args.url, args.target, js_exact)
+        c = run_once(args.url, args.target, js_exact, args.exact)
         end = time.time()
-        print(f"Extracted {c} candidates in {end - start:.2f} seconds (Run {i+1})")
+        print(f"Extracted {c} candidates in {end - start:.2f} seconds (Run {i+1}) | exact={args.exact}")
         counts.append(c)
     t1 = time.time()
-    print(f"Total runtime: {t1 - t0:.2f}s; Counts: {counts}")
+    print(f"Total runtime: {t1 - t0:.2f}s; Counts: {counts} | exact={args.exact}")
 
 
 if __name__ == "__main__":
